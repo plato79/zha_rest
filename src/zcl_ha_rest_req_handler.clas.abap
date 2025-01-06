@@ -45,6 +45,11 @@ CLASS ZCL_HA_REST_REQ_HANDLER IMPLEMENTATION.
                      ).
 
     lo_router->attach(
+                       iv_template = '/qr'
+                       iv_handler_class = 'ZCL_HA_REST_REQ_PROVIDER'
+                     ).
+
+    lo_router->attach(
                        iv_template = '/whoami'
                        iv_handler_class = 'ZCL_HA_REST_REQ_PROVIDER'
                      ).
