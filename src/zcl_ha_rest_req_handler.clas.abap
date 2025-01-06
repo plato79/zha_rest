@@ -79,6 +79,11 @@ CLASS ZCL_HA_REST_REQ_HANDLER IMPLEMENTATION.
                        iv_handler_class = 'ZCL_HA_REST_REQ_PROVIDER'
                      ).
 
+    lo_router->attach(
+                       iv_template = '/empty'
+                       iv_handler_class = 'ZCL_HA_REST_REQ_PROVIDER'
+                     ).
+
     ro_root_handler = lo_router.
 
   endmethod.
