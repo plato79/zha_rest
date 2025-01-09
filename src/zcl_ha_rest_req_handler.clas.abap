@@ -75,7 +75,22 @@ CLASS ZCL_HA_REST_REQ_HANDLER IMPLEMENTATION.
                      ).
 
     lo_router->attach(
+                       iv_template = '/setbought/{ item }'
+                       iv_handler_class = 'ZCL_HA_REST_REQ_PROVIDER'
+                     ).
+
+    lo_router->attach(
                        iv_template = '/addtolist'
+                       iv_handler_class = 'ZCL_HA_REST_REQ_PROVIDER'
+                     ).
+
+    lo_router->attach(
+                       iv_template = '/delete'
+                       iv_handler_class = 'ZCL_HA_REST_REQ_PROVIDER'
+                     ).
+
+    lo_router->attach(
+                       iv_template = '/delete/{ item }'
                        iv_handler_class = 'ZCL_HA_REST_REQ_PROVIDER'
                      ).
 

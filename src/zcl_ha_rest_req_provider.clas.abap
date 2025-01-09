@@ -10,6 +10,8 @@ public section.
     redefinition .
   methods IF_REST_RESOURCE~POST
     redefinition .
+  methods IF_REST_RESOURCE~DELETE
+    redefinition .
 protected section.
 
   methods GET_WEATHER .
@@ -57,6 +59,26 @@ CLASS ZCL_HA_REST_REQ_PROVIDER IMPLEMENTATION.
       ENDIF.
     ENDLOOP.
 
+    if ls_list is initial.
+
+      " We are getting the JSON from the request's body
+      data(lv_request) = mo_request->get_entity( )->get_string_data( ).
+
+      /ui2/cl_json=>deserialize(
+        EXPORTING
+          json = lv_request
+        CHANGING
+          data = ls_list
+       ).
+
+      if ls_list is initial.
+
+        error( status = 400 reason = 'No item data entered' ).
+        exit.
+
+      endif.
+    endif.
+
     " Adding the item to our table. I'm executing modify here to
     " make sure this also updates if it's already in the table.
     " BTW, if you don't set 'item' in parameters, a record with empty key
@@ -89,10 +111,14 @@ CLASS ZCL_HA_REST_REQ_PROVIDER IMPLEMENTATION.
     data(lv_item) = MO_REQUEST->GET_URI_QUERY_PARAMETER( iv_name = 'item' ).
 
     if lv_item is initial. " Checking 'item' value
-      " The item should be filled. We are giving error 400 ( BAD DATA )
-      " and also a message for the caller.
-      error( status = 400 reason = 'Please provide item name' ).
-      exit.
+      " Let's also check attributes, maybe it's set there.
+      lv_item = mo_request->get_uri_attribute( iv_name = 'item' iv_encoded = abap_false ).
+      if lv_item is initial. " Hope, it's there now.
+        " The item should be filled. We are giving error 400 ( BAD DATA )
+        " and also a message for the caller.
+        error( status = 400 reason = 'Please provide item name' ).
+        exit.
+      endif.
     endif.
 
     " We query the item in this step. The item should be there to continue further.
@@ -303,31 +329,31 @@ CLASS ZCL_HA_REST_REQ_PROVIDER IMPLEMENTATION.
 
     " Here we are reading path(endpoint) from the request. It'll return the part after
     " the service name.
-    data(lv_path) = |{ MO_REQUEST->GET_URI_PATH( ) CASE = lower }|.
+    data(lv_path) = segment( val = |{ MO_REQUEST->GET_URI_PATH( ) CASE = lower }| sep = '/' index = 2 ).
 
     "
     CASE lv_path.
-      WHEN '/weather'. " This will redirect to open-meteo api to get weather information
+      WHEN 'weather'. " This will redirect to open-meteo api to get weather information
         get_weather( ).
-      WHEN '/qr'.
-        generate_qr( ).
-      WHEN '/' or space. " We will use root path for reading token to use in POST requests
+      WHEN 'qr'.
+        generate_qr( ). " This will generate a QR based on input
+      WHEN space or 'token'. " We will use root path for reading token to use in POST requests
         get_token( ).
-      WHEN '/whoami'. " This endpoint will return the user information of logged in user
+      WHEN 'whoami'. " This endpoint will return the user information of logged in user
         whoami( ).
-      WHEN '/whoisthis'. " This endpoint will query user information from parameter 'user'.
+      WHEN 'whoisthis'. " This endpoint will query user information from parameter 'user'.
         data: lv_user type SYST_UNAME.
         lv_user = MO_REQUEST->GET_URI_QUERY_PARAMETER( iv_name = 'user' ).
         whoami( lv_user ).
-      WHEN '/getlist'. " This endpoint will return the contents of our shopping list
+      WHEN 'getlist'. " This endpoint will return the contents of our shopping list
         get_list( ).
-      WHEN '/addtolist'. " This endpoint will add new items to our shopping list
+      WHEN 'addtolist'. " This endpoint will add new items to our shopping list
         add_to_list( ).
-      WHEN '/setbought'. " This endpoint will set/unset an item as bought
+      WHEN 'setbought'. " This endpoint will set/unset an item as bought
         set_bought( ).
-      WHEN '/delete'. " This endpoint will delete the item from our shopping list
+      WHEN 'delete'. " This endpoint will delete the item from our shopping list
         delete_from_list( ).
-      WHEN '/empty'.
+      WHEN 'empty'.
         empty_list( ).
     ENDCASE.
 
@@ -362,6 +388,8 @@ CLASS ZCL_HA_REST_REQ_PROVIDER IMPLEMENTATION.
     CASE lv_path.
       WHEN '/setlist'. " This endpoint will set the contents of our shopping list
         set_list( ).
+      WHEN '/addtolist'. " This endpoint will add new items to our shopping list
+        add_to_list( ).
     ENDCASE.
 
 
@@ -370,28 +398,42 @@ CLASS ZCL_HA_REST_REQ_PROVIDER IMPLEMENTATION.
 
   method SET_BOUGHT.
 
+    " We're reading the 'item' parameter from the request uri
     data(lv_item) = MO_REQUEST->GET_URI_QUERY_PARAMETER( iv_name = 'item' ).
 
-    if lv_item is initial.
-      error( status = 400 reason = 'Please provide item name' ).
-      exit.
+    if lv_item is initial. " Checking 'item' value
+      " Let's also check attributes, maybe it's set there.
+      lv_item = mo_request->get_uri_attribute( iv_name = 'item' iv_encoded = abap_false ).
+      if lv_item is initial. " Hope, it's there now.
+        " The item should be filled. We are giving error 400 ( BAD DATA )
+        " and also a message for the caller.
+        error( status = 400 reason = 'Please provide item name' ).
+        exit.
+      endif.
     endif.
 
+    " We query the item in this step. The item should be there to continue further.
     select item, description, quantity, bought from zha_list where item = @lv_item into @data(ls_response).
+
+      " We're checking if the item is bought or not.
+      " Either case we reverse the value.
       if ls_response-bought eq space.
         ls_response-bought = abap_true.
       else.
         ls_response-bought = space.
       endif.
 
+      " Updating bought field with new value.
       update zha_list set bought = ls_response-bought where item = lv_item.
 
+      " Now we are sending the entire item back ( including bought field )
       /ui2/cl_json=>serialize(
         EXPORTING
           data  = ls_response
         RECEIVING
           r_json = data(lv_response) ).
 
+      " Writing the response to the body.
       mo_response->create_entity( )->set_string_data( iv_data = lv_response ).
 
     " We are telling the browser to understand what kind of data we sent to it.
@@ -399,9 +441,11 @@ CLASS ZCL_HA_REST_REQ_PROVIDER IMPLEMENTATION.
       mo_response->set_header_field( iv_name = if_http_header_fields=>CONTENT_TYPE iv_value = |application/json| ).
 
     endselect.
-    if sy-subrc ne 0.
-      mo_response->set_status( iv_status = 200 iv_reason_phrase = 'Item is not in the list' ).
-      mo_response->create_entity( )->set_string_data( iv_data = 'Item is not in the list' ).
+    if sy-subrc ne 0. " The item is not in DB.
+      " We're telling we got the message ( 200 ) and it's executed
+      " but the item is not in the list.
+      " This is still a problem, so we give error message.
+      error( status = 200 reason = 'Item is not in the list' ).
     endif.
 
   endmethod.
@@ -599,5 +643,23 @@ CLASS ZCL_HA_REST_REQ_PROVIDER IMPLEMENTATION.
 
     " Setting the response data to our response body.
     mo_response->create_entity( )->set_string_data( iv_data = lv_response ).
+  endmethod.
+
+
+  method IF_REST_RESOURCE~DELETE.
+*CALL METHOD SUPER->IF_REST_RESOURCE~DELETE
+*    .
+
+    " Here we are reading path(endpoint) from the request. It'll return the part after
+    " the service name.
+    data(lv_path) = segment( val = |{ MO_REQUEST->GET_URI_PATH( ) CASE = lower }| sep = '/' index = 2 ).
+
+    CASE lv_path.
+      WHEN 'delete'. " This endpoint will delete the item from our shopping list
+        delete_from_list( ).
+      WHEN 'empty'.
+        empty_list( ).
+    ENDCASE.
+
   endmethod.
 ENDCLASS.
